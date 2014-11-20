@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+# This comes from https://github.com/sixohsix/twitter/blob/master/twitter/stream_example.py
+# With slight modifications
+# Original author https://github.com/sixohsix (Mike Verdone)
+
 """
 Example program for the Stream API. This prints public status messages
 from the "sample" stream as fast as possible. Use -h for help.
