@@ -4,6 +4,7 @@ from __future__ import print_function
 from twython import Twython, TwythonError
 import json
 import time
+import sys
 
 import logging
 
@@ -93,7 +94,9 @@ def main():
     #results = cursor(t, sleeper_search, q='"earthquake"OR"地震"OR"アースクェイク"', count="100", geocode="30.030,131.158,250km")
     # Iceland 5.2 http://comcat.cr.usgs.gov/earthquakes/eventpage/usc000sx8r
     # Iceland 5.1 http://comcat.cr.usgs.gov/earthquakes/eventpage/usc000sxqj
-    results = cursor(t, sleeper_search, q='"earthquake"OR"jarðskjálfta"', count="100", geocode="64.629,-17.728,250km")
+    #results = cursor(t, sleeper_search, q='"earthquake"OR"jarðskjálfta"', count="100", geocode="64.629,-17.728,250km")
+    # N. Cal 4.2 http://earthquake.usgs.gov/earthquakes/eventpage/nc72350156
+    results = cursor(t, sleeper_search, q='"earthquake"', count="100", geocode="36.809,-121.535,250km")
     for result in results:
         print(json.dumps(result))
 
