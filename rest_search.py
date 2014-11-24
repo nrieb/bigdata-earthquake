@@ -46,7 +46,7 @@ def cursor(self, function, **params):
             results = content.get(function.iter_key)
         else:
             results = content
-
+        logging.info("retrived {0}".format(len(results)))
         for result in results:
             if "id" in result and (min_id == None or result["id"] < min_id):
                 min_id = result["id"]
@@ -74,6 +74,7 @@ def main():
     def sleeper_search(**params):
         logging.info(params)
         result = t.search(**params)
+        
         time.sleep(REQUEST_INTERVAL)
         return result
     sleeper_search.iter_mode = 'id'
@@ -96,7 +97,9 @@ def main():
     # Iceland 5.1 http://comcat.cr.usgs.gov/earthquakes/eventpage/usc000sxqj
     #results = cursor(t, sleeper_search, q='"earthquake"OR"jarðskjálfta"', count="100", geocode="64.629,-17.728,250km")
     # N. Cal 4.2 http://earthquake.usgs.gov/earthquakes/eventpage/nc72350156
-    results = cursor(t, sleeper_search, q='"earthquake"', count="100", geocode="36.809,-121.535,250km")
+    #results = cursor(t, sleeper_search, q='"earthquake"', count="100", geocode="36.809,-121.535,250km")
+    # 6.2 Japan http://earthquake.usgs.gov/earthquakes/eventpage/usb000syza
+    results = cursor(t, sleeper_search, q='"earthquake"OR"地震"OR"アースクェイク"', count="100", geocode="36.64,137.911,250km", until="2014-11-23")
     for result in results:
         print(json.dumps(result))
 

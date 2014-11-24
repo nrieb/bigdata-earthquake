@@ -12,11 +12,71 @@ import json
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 
+from nltk import PorterStemmer
+from nltk.corpus import stopwords
+
 # 2014-11-20 06:26:49 UTC
 INPUT_FORMAT = "%Y-%m-%d %H:%M:%S"
 #"Wed Nov 19 23:15:11 +0000 2014"
 TWEET_FORMAT = "%a %b %d %H:%M:%S +0000 %Y"
+'''--------------------------------------------------------------------------'''
+'''WordCount'''
+'''--------------------------------------------------------------------------'''
+#   english_transform :: String -> String
+def english_transform(word):
+    lowercase = word.lower()
+    stemmer = PorterStemmer()
+    stemmed = stemmer.stem(lowercase)
+    if lowercase in stopwords.words('english') or \
+       stemmed in stopwords.word('english') or stemmed == "earthquake":
+        return ""
+    else:
+        return stemmed
 
+#   wordcount :: [Dict] -> (String -> String) -> {String:Int}
+def wordcount(tweets, word_transform):
+    words = {}
+    for tweet in tweets:
+        if "text" in tweet:
+            text = tweet["text"]
+        else:
+            continue
+        for word in (word_transform(x) for x in text.split(' ') if len(word_transfom(x))):
+            if word in words:
+                words[word] += 1
+            else:
+                words[word] = 1
+    return words
+
+#   split_tweets_by_lang :: [Dict] -> {String:[Dict]}
+def split_tweets_by_lang(tweets):
+    langs = {}
+    for tweet in tweets:
+        if "lang" in tweet:
+            lang = tweet["lang"]
+        else:
+            lang = "other"
+        if lang in langs:
+            langs[lang].append(tweet)
+        else:
+            langs[lang] = [tweet]
+
+    return langs
+
+#   wordcounts_by_lang :: [Dict] -> {Lang:{Word:Count}}
+def wordcounts_by_lang(tweets):
+    wordcounts = {}
+    tweets_by_lang = split_tweets_by_lang(tweets)
+    for lang, tweets in tweets_by_lang.iteritems():
+        if lang == "en":
+            wordcounts[lang] = wordcount(tweets, english_transform)
+        else:
+            wordcounts[lang] = wordcount(tweets, lambda x: x.lower())
+    return wordcounts
+
+'''--------------------------------------------------------------------------'''
+'''Graph'''
+'''--------------------------------------------------------------------------'''
 #   datetime_ceil_by_hour :: Datetime -> Datetime
 def datetime_ceil_by_hour(date_time):
     if date_time.minute or date_time.second or date_time.microsecond:
@@ -70,15 +130,31 @@ def graph_tweets(tweets):
     plt.clf()
     plt.bar(range(len(count_per_bucket)), count_per_bucket,
             color='r', label='# of tweets')
-    plt.title("Kansas - 4.8 - 2014-11-12 21:40:00 UTC")
+    plt.title("Japan - 6.2 - 2014-11-22 13:08:18 UTC")
     plt.xlabel("Time Intervals")
     plt.ylabel("Count of Tweets")
     plt.xticks(range(len(buckets)),
                ["{0}:{1:02}".format(x.hour, x.minute) for (x,_) in buckets],
                rotation='vertical')
-    #plt.show()
-    plt.savefig("kansas_4.8.png")
+    plt.show()
+    #plt.savefig("japan_6.2.png")
 
+'''--------------------------------------------------------------------------'''
+''' Relevant Tweets '''
+'''--------------------------------------------------------------------------'''
+#   unique_tweets :: [Dict] -> [Dict]
+def unique_tweets(tweets):
+    sorted_by_id = sorted((x for x in tweets if "id" in x),
+                          cmp=lambda x,y: cmp(x["id"], y["id"]))
+    uniques = []
+    prev_tweet = None
+    for tweet in sorted_by_id:
+        if prev_tweet == None or prev_tweet["id"] != tweet["id"]:
+            uniques.append(tweet)
+        prev_tweet = tweet
+
+    return uniques
+    
 #   date_timely :: Datetime -> Datetime -> Bool
 def date_timely(time1, time2):
     """
@@ -92,7 +168,7 @@ def date_timely(time1, time2):
 #   tweet_timely :: Dict -> Datetime -> Bool
 def tweet_timely(tweet, time):
     """
-    Returns whther the tweet is in a predifined interval around time.
+    Returns whether the tweet is in a predifined interval around time.
     """
     if "created_at" not in tweet:
         return False
@@ -112,11 +188,15 @@ def timely_data(file_obj, earthquake_time):
     for line in file_obj:
         line = line.strip()
         if len(line):
-            tweet = json.loads(line)
+            try:
+                tweet = json.loads(line)
+            except ValueError:
+                continue
             if tweet_timely(tweet, earthquake_time):
                 data.append(tweet)
-    return data
+    return unique_tweets(data)
 
+'''--------------------------------------------------------------------------'''
 #   main :: IO()
 def main():
     """
@@ -136,12 +216,13 @@ def main():
     """
     for tweet in timely_data(sys.stdin, earthquake_time):
         print(json.dumps(tweet))
-
+    
     tweets = []
     for line in sys.stdin:
         line = line.strip()
         if len(line):
             tweets.append(json.loads(line))
+    graph_tweets(tweets)
     """
     graph_tweets(timely_data(sys.stdin, earthquake_time))
 
