@@ -11,12 +11,19 @@ import sys
 import json
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+import os.path
+import os
+
+from collections import namedtuple
 
 from nltk import PorterStemmer
 from nltk.corpus import stopwords
 
+import logging
+import re
+
 # 2014-11-20 06:26:49 UTC
-INPUT_FORMAT = "%Y-%m-%d %H:%M:%S"
+INPUT_FORMAT = "%Y-%m-%d_%H:%M:%S"
 #"Wed Nov 19 23:15:11 +0000 2014"
 TWEET_FORMAT = "%a %b %d %H:%M:%S +0000 %Y"
 '''--------------------------------------------------------------------------'''
@@ -24,11 +31,17 @@ TWEET_FORMAT = "%a %b %d %H:%M:%S +0000 %Y"
 '''--------------------------------------------------------------------------'''
 #   english_transform :: String -> String
 def english_transform(word):
+    word = word.encode('ascii', 'ignore')
+    extra_words = ["earthquake", "earthquak", "magnitude", "magnitud",
+                   "magnitudemb", "epicent", "epicenter", "novemb", "depth"]
     lowercase = word.lower()
     stemmer = PorterStemmer()
     stemmed = stemmer.stem(lowercase)
-    if lowercase in stopwords.words('english') or \
-       stemmed in stopwords.word('english') or stemmed == "earthquake":
+    if re.match(r"^[a-z]+$", lowercase) == None or \
+       lowercase in stopwords.words('english') or \
+       stemmed in stopwords.words('english') or \
+       stemmed in extra_words or lowercase in extra_words or \
+       len(stemmed) <= 3:
         return ""
     else:
         return stemmed
@@ -41,7 +54,7 @@ def wordcount(tweets, word_transform):
             text = tweet["text"]
         else:
             continue
-        for word in (word_transform(x) for x in text.split(' ') if len(word_transfom(x))):
+        for word in (x for x in map(word_transform, text.split(' ')) if len(x)):
             if word in words:
                 words[word] += 1
             else:
@@ -69,10 +82,32 @@ def wordcounts_by_lang(tweets):
     tweets_by_lang = split_tweets_by_lang(tweets)
     for lang, tweets in tweets_by_lang.iteritems():
         if lang == "en":
+            logging.info("# english tweets: {0}".format(len(tweets)))
             wordcounts[lang] = wordcount(tweets, english_transform)
         else:
             wordcounts[lang] = wordcount(tweets, lambda x: x.lower())
     return wordcounts
+
+Quake = namedtuple("Quake", ['mag', 'lat', 'lon', 'date'])
+#   quake_from_filename :: Filename -> Quake
+def quake_from_filename(filename):
+    base = os.path.basename(filename)
+    (root, _) = os.path.splitext(base)
+    info = root.split("_", 3)
+    mag = float(info[0])
+    lat = float(info[1])
+    lon = float(info[2])
+    date = datetime.strptime(info[3], INPUT_FORMAT)
+    return Quake(mag=mag, lat=lat, lon=lon, date=date)
+
+def displayname_from_filename(filename):
+    base = os.path.basename(filename)
+    (root, _) = os.path.splitext(base)
+    return root.replace("_", " ")
+    
+def replace_extension(filename, extension):
+    (root, _) = os.path.splitext(filename)
+    return root + "." + extension
 
 '''--------------------------------------------------------------------------'''
 '''Graph'''
@@ -117,35 +152,40 @@ def num_dates_in_buckets(dates, buckets):
 
     return counts
 
-
-def graph_tweets(tweets):
+def graph_tweets(tweets, filename, title=None):
+    if not title:
+        title = filename
     dates = sorted((datetime.strptime(x["created_at"], TWEET_FORMAT)
                     for x in tweets))
     low = min(dates).replace(second=0, microsecond=0)
     high = datetime_ceil_by_hour(max(dates))
-    #buckets = datetime_buckets(low, high, timedelta(hours=1))
     buckets = datetime_buckets(low, high, timedelta(minutes=15))
     count_per_bucket = num_dates_in_buckets(dates, buckets)
     # graph it. # is y axis, buckets are x axis, count_per bucket is the bar
     plt.clf()
     plt.bar(range(len(count_per_bucket)), count_per_bucket,
             color='r', label='# of tweets')
-    plt.title("Japan - 6.2 - 2014-11-22 13:08:18 UTC")
+    plt.title(title)
     plt.xlabel("Time Intervals")
     plt.ylabel("Count of Tweets")
     plt.xticks(range(len(buckets)),
-               ["{0}:{1:02}".format(x.hour, x.minute) for (x,_) in buckets],
+               ["{0}:{1:02}".format(x.hour, x.minute) for (x, _) in buckets],
                rotation='vertical')
-    plt.show()
-    #plt.savefig("japan_6.2.png")
+    #plt.show()
+    plt.savefig(filename)
 
 '''--------------------------------------------------------------------------'''
 ''' Relevant Tweets '''
 '''--------------------------------------------------------------------------'''
+
+def remove_retweets(tweets):
+    return [x for x in tweets if "retweeted_status" not in x]
+
 #   unique_tweets :: [Dict] -> [Dict]
 def unique_tweets(tweets):
+    """Removes retweets and keeps only unique id tweets"""
     sorted_by_id = sorted((x for x in tweets if "id" in x),
-                          cmp=lambda x,y: cmp(x["id"], y["id"]))
+                          cmp=lambda x, y: cmp(x["id"], y["id"]))
     uniques = []
     prev_tweet = None
     for tweet in sorted_by_id:
@@ -154,13 +194,12 @@ def unique_tweets(tweets):
         prev_tweet = tweet
 
     return uniques
-    
+
 #   date_timely :: Datetime -> Datetime -> Bool
 def date_timely(time1, time2):
     """
     Returns whether time1 is in a predifined interval around time2
     """
-    diff = time2 - time1
     before = timedelta(hours=2)
     after = timedelta(hours=4)
     return time2 - before <= time1 <= time2 + after
@@ -179,7 +218,7 @@ def tweet_timely(tweet, time):
         except ValueError:
             return False
 
-#   timely_data :: File -> Datetime -> IO (Dict)
+#   timely_data :: File -> Datetime -> IO ([Dict])
 def timely_data(file_obj, earthquake_time):
     """
     Looks in the file object for data around the earthquake_time.
@@ -191,14 +230,64 @@ def timely_data(file_obj, earthquake_time):
             try:
                 tweet = json.loads(line)
             except ValueError:
+                logging.info("ValueError")
                 continue
             if tweet_timely(tweet, earthquake_time):
                 data.append(tweet)
+
     return unique_tweets(data)
 
+def geo_count(tweets):
+    count = 0
+    for tweet in tweets:
+        if "geo" in tweet and tweet["geo"] != None:
+            count += 1
+    return count
+
 '''--------------------------------------------------------------------------'''
-#   main :: IO()
 def main():
+    logging.basicConfig(level=logging.INFO)
+    tweet_files = sys.argv[1:]
+    logging.info("# earthquake files: {0}".format(len(tweet_files)))
+    tweets = []
+    num_eq = 0
+    max_geo = 0
+    geo_file = ""
+    for tweet_file in tweet_files:
+        if not os.path.exists(tweet_file) or not os.path.isfile(tweet_file):
+            logging.info("continue")
+            continue
+        quake = quake_from_filename(tweet_file)
+        with open(tweet_file, "r") as fileobj:
+            data = timely_data(fileobj, quake.date)
+            geo = geo_count(data)
+            if geo > max_geo:
+                max_geo = geo
+                geo_file = tweet_file
+            if len(data):
+                num_eq += 1
+
+            if len(data) > 200:                                
+                graph_tweets(data, replace_extension(tweet_file, "png"),
+                             displayname_from_filename(tweet_file))
+
+            tweets += remove_retweets(data)
+
+    uniques = unique_tweets(tweets)
+    counts = wordcounts_by_lang(uniques)
+
+    for word, count in counts["en"].items():
+        try:
+            print(unicode("{word}\t{count}").format(word=word, count=count))
+        except UnicodeEncodeError:
+            logging.info(word)
+            raise
+    logging.info("# earthquakes used: {0}".format(num_eq))
+    logging.info("# geos {0}, max file {1}".format(max_geo, geo_file))
+
+
+#   main :: IO()
+def main_old():
     """
     main
     """
