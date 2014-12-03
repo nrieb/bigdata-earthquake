@@ -240,7 +240,7 @@ def timely_data(file_obj, earthquake_time):
 def geo_count(tweets):
     count = 0
     for tweet in tweets:
-        if "geo" in tweet and tweet["geo"] != None:
+        if "coordinates" in tweet and tweet["coordinates"] != None:
             count += 1
     return count
 
@@ -286,6 +286,23 @@ def main():
     logging.info("# geos {0}, max file {1}".format(max_geo, geo_file))
 
 
+def main_geo():
+    print("var obj = [")
+    for line in sys.stdin:
+        line = line.strip()
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+
+        if "coordinates" in obj and obj["coordinates"] != None:
+            coordinates = obj["coordinates"]
+            assert "type" in coordinates and coordinates["type"] == "Point"
+            lon = coordinates["coordinates"][0]
+            lat = coordinates["coordinates"][1]
+            print("\tnew google.maps.LatLng({lat}, {lon}),".format(lat=lat, lon=lon))
+    print("]")
+
 #   main :: IO()
 def main_old():
     """
@@ -317,4 +334,3 @@ def main_old():
 
 if __name__ == "__main__":
     main()
-
