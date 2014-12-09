@@ -32,13 +32,18 @@ TWEET_FORMAT = "%a %b %d %H:%M:%S +0000 %Y"
 #   english_transform :: String -> String
 def english_transform(word):
     word = word.encode('ascii', 'ignore')
+    allowable_chars = "abcdefghijklmnopqrstuvwxyz"
+    lowercase = "".join(char for char in word.lower()
+                        if char in allowable_chars)
     extra_words = ["earthquake", "earthquak", "magnitude", "magnitud",
-                   "magnitudemb", "epicent", "epicenter", "novemb", "depth"]
-    lowercase = word.lower()
+                   "magnitudemb", "epicent", "epicenter", "novemb", "depth",
+                   "california", "quake", "quak", "sismo", "dyfi",
+                   "oklahoma", "northern", "carlsberg", "temblor", "indonesia",
+                   "kansa", "depthkm", "oregon", "alaska", "hawaii", "itim", "wichita"]
+    
     stemmer = PorterStemmer()
     stemmed = stemmer.stem(lowercase)
-    if re.match(r"^[a-z]+$", lowercase) == None or \
-       lowercase in stopwords.words('english') or \
+    if lowercase in stopwords.words('english') or \
        stemmed in stopwords.words('english') or \
        stemmed in extra_words or lowercase in extra_words or \
        len(stemmed) <= 3:
@@ -100,10 +105,20 @@ def quake_from_filename(filename):
     date = datetime.strptime(info[3], INPUT_FORMAT)
     return Quake(mag=mag, lat=lat, lon=lon, date=date)
 
+
+
 def displayname_from_filename(filename):
     base = os.path.basename(filename)
     (root, _) = os.path.splitext(base)
-    return root.replace("_", " ")
+    values = root.split("_")
+    mag = values[0]
+    lat = values[1]
+    lon = values[2]
+    date = values[3]
+    time = values[4]
+    return "{0} mag, {1} lat, {2} lon, {3} {4}".format(mag, lat, lon,
+                                                       date, time)
+
     
 def replace_extension(filename, extension):
     (root, _) = os.path.splitext(filename)
@@ -172,7 +187,7 @@ def graph_tweets(tweets, filename, title=None):
                ["{0}:{1:02}".format(x.hour, x.minute) for (x, _) in buckets],
                rotation='vertical')
     #plt.show()
-    plt.savefig(filename)
+    plt.savefig(filename, bbox_inches='tight')
 
 '''--------------------------------------------------------------------------'''
 ''' Relevant Tweets '''
@@ -251,8 +266,8 @@ def main():
     logging.info("# earthquake files: {0}".format(len(tweet_files)))
     tweets = []
     num_eq = 0
-    max_geo = 0
-    geo_file = ""
+    geo_files = []
+    count = 0
     for tweet_file in tweet_files:
         if not os.path.exists(tweet_file) or not os.path.isfile(tweet_file):
             logging.info("continue")
@@ -261,14 +276,13 @@ def main():
         with open(tweet_file, "r") as fileobj:
             data = timely_data(fileobj, quake.date)
             geo = geo_count(data)
-            if geo > max_geo:
-                max_geo = geo
-                geo_file = tweet_file
+            if geo > 100:
+                geo_files.append((tweet_file, geo))
             if len(data):
                 num_eq += 1
 
             if len(data) > 200:                                
-                graph_tweets(data, replace_extension(tweet_file, "png"),
+                graph_tweets(remove_retweets(data), replace_extension(tweet_file, "png"),
                              displayname_from_filename(tweet_file))
 
             tweets += remove_retweets(data)
@@ -283,24 +297,25 @@ def main():
             logging.info(word)
             raise
     logging.info("# earthquakes used: {0}".format(num_eq))
-    logging.info("# geos {0}, max file {1}".format(max_geo, geo_file))
+    for (name, geo) in geo_files:
+        logging.info("{0}\t{1}".format(name, geo))
+
 
 
 def main_geo():
+    tweet_file = sys.argv[1]
     print("var obj = [")
-    for line in sys.stdin:
-        line = line.strip()
-        try:
-            obj = json.loads(line)
-        except ValueError:
-            continue
+    quake = quake_from_filename(tweet_file)
+    with open(tweet_file, "r") as fileobj:
+        data = timely_data(fileobj, quake.date)
 
-        if "coordinates" in obj and obj["coordinates"] != None:
-            coordinates = obj["coordinates"]
-            assert "type" in coordinates and coordinates["type"] == "Point"
-            lon = coordinates["coordinates"][0]
-            lat = coordinates["coordinates"][1]
-            print("\tnew google.maps.LatLng({lat}, {lon}),".format(lat=lat, lon=lon))
+        for obj in unique_tweets(data):
+            if "coordinates" in obj and obj["coordinates"] != None:
+                coordinates = obj["coordinates"]
+                assert "type" in coordinates and coordinates["type"] == "Point"
+                lon = coordinates["coordinates"][0]
+                lat = coordinates["coordinates"][1]
+                print("\tnew google.maps.LatLng({lat}, {lon}),".format(lat=lat, lon=lon))
     print("]")
 
 #   main :: IO()
@@ -330,7 +345,9 @@ def main_old():
             tweets.append(json.loads(line))
     graph_tweets(tweets)
     """
-    graph_tweets(timely_data(sys.stdin, earthquake_time))
+    graph_tweets(unique_tweets(timely_data(sys.stdin, earthquake_time)),
+                 "kansas.png", "Kansas - 4.8 - 2014-11-12 21:40:00 UTC")
+    
 
 if __name__ == "__main__":
     main()
